@@ -1,0 +1,44 @@
+# ───── Secrets / environment ─────
+# Real secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# ───── Python ─────
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Bytecode + caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ───── User uploads ─────
+# Files uploaded by users at runtime — don't commit them
+uploads/*
+!uploads/.gitkeep
+
+# ───── IDE / OS ─────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ───── Logs ─────
+*.log
+logs/
