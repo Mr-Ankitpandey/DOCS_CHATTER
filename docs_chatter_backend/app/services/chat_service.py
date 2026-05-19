@@ -1,12 +1,14 @@
 import uuid
 from collections.abc import AsyncGenerator
-from pathlib import Path
+# from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import create_client
+import os
 
 from app.models.chunk import Chunk
 from app.models.conversation import Conversation
@@ -19,7 +21,12 @@ from app.repositories import message as message_repo
 from app.services import retrieval_service
 from app.services.openai_service import get_chat_model
 
-UPLOAD_DIR = Path("uploads")
+supabase = create_client(
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+)
+
+# UPLOAD_DIR = Path("uploads")
 MAX_FILE_SIZE = 25 * 1024 * 1024
 ALLOWED_MIME_TYPES: dict[str, str] = {
     "application/pdf": "pdf",
@@ -53,17 +60,28 @@ async def create_chat(db: AsyncSession, *, user: User, file: UploadFile) -> Conv
 
     document_id = uuid.uuid4()
     extension = ALLOWED_MIME_TYPES[file.content_type]
-    user_dir = UPLOAD_DIR / str(user.id)
-    user_dir.mkdir(parents=True, exist_ok=True)
-    file_path = user_dir / f"{document_id}.{extension}"
-    file_path.write_bytes(content)
+    # user_dir = UPLOAD_DIR / str(user.id)
+    # user_dir.mkdir(parents=True, exist_ok=True)
+    # file_path = user_dir / f"{document_id}.{extension}"
+    # file_path.write_bytes(content)
+    file_name = f"{user.id}/{document_id}.{extension}"
+
+    supabase.storage.from_("documents").upload(
+    file_name,
+    content,
+    {"content-type": file.content_type}
+    )
+
+    # file_url = supabase.storage.from_("documents").get_public_url(file_name)
 
     try:
         document = Document(
             id=document_id,
             user_id=user.id,
-            filename=file.filename or file_path.name,
-            file_path=str(file_path),
+            # filename=file.filename or file_path.name,
+            filename=file.filename or file_name,
+            # file_path=str(file_path),
+            file_path=file_name,
             file_size=len(content),
             mime_type=file.content_type,
         )
@@ -81,7 +99,8 @@ async def create_chat(db: AsyncSession, *, user: User, file: UploadFile) -> Conv
         await db.refresh(conversation, ["document"])
         return conversation
     except Exception:
-        file_path.unlink(missing_ok=True)
+        # file_path.unlink(missing_ok=True)
+        supabase.storage.from_("documents").remove([file_name])
         raise
 
 
@@ -99,22 +118,42 @@ async def get_chat(db: AsyncSession, user: User, chat_id: UUID) -> Conversation:
     return conv
 
 
+# async def delete_chat(db: AsyncSession, user: User, chat_id: UUID) -> None:
+#     conv = await conv_repo.get_by_user_and_id(db, user.id, chat_id)
+#     if conv is None:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Chat not found",
+#         )
+
+#     file_path = Path(conv.document.file_path)
+#     document = conv.document
+
+#     await db.delete(conv)
+#     await db.delete(document)
+#     await db.commit()
+
+#     # file_path.unlink(missing_ok=True)
+#     supabase.storage.from_("documents").remove([file_name])
+
 async def delete_chat(db: AsyncSession, user: User, chat_id: UUID) -> None:
     conv = await conv_repo.get_by_user_and_id(db, user.id, chat_id)
+
     if conv is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
 
-    file_path = Path(conv.document.file_path)
     document = conv.document
 
     await db.delete(conv)
     await db.delete(document)
     await db.commit()
 
-    file_path.unlink(missing_ok=True)
+    supabase.storage.from_("documents").remove(
+        [document.file_path]
+    )
 
 
 async def list_messages(db: AsyncSession, user: User, chat_id: UUID) -> list[Message]:
