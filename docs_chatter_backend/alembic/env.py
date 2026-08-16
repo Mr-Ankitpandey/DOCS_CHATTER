@@ -13,7 +13,9 @@ from app.models import *  # noqa: F401,F403  — register all models with Base.m
 
 config = context.config
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# configparser treats "%" as interpolation syntax, so escape it or any
+# percent-encoded character in the password (e.g. "%40") breaks parsing.
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
