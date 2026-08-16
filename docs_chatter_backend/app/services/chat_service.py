@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import AsyncGenerator
+
 # from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -7,8 +8,6 @@ from uuid import UUID
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from supabase import create_client
-import os
 
 from app.models.chunk import Chunk
 from app.models.conversation import Conversation
@@ -20,11 +19,7 @@ from app.repositories import conversation as conv_repo
 from app.repositories import message as message_repo
 from app.services import retrieval_service
 from app.services.openai_service import get_chat_model
-
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-)
+from app.services.supabase_service import get_bucket
 
 # UPLOAD_DIR = Path("uploads")
 MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -66,10 +61,10 @@ async def create_chat(db: AsyncSession, *, user: User, file: UploadFile) -> Conv
     # file_path.write_bytes(content)
     file_name = f"{user.id}/{document_id}.{extension}"
 
-    supabase.storage.from_("documents").upload(
-    file_name,
-    content,
-    {"content-type": file.content_type}
+    get_bucket().upload(
+        file_name,
+        content,
+        {"content-type": file.content_type},
     )
 
     # file_url = supabase.storage.from_("documents").get_public_url(file_name)
@@ -100,7 +95,7 @@ async def create_chat(db: AsyncSession, *, user: User, file: UploadFile) -> Conv
         return conversation
     except Exception:
         # file_path.unlink(missing_ok=True)
-        supabase.storage.from_("documents").remove([file_name])
+        get_bucket().remove([file_name])
         raise
 
 
@@ -151,9 +146,7 @@ async def delete_chat(db: AsyncSession, user: User, chat_id: UUID) -> None:
     await db.delete(document)
     await db.commit()
 
-    supabase.storage.from_("documents").remove(
-        [document.file_path]
-    )
+    get_bucket().remove([document.file_path])
 
 
 async def list_messages(db: AsyncSession, user: User, chat_id: UUID) -> list[Message]:

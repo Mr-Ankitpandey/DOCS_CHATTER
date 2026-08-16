@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 import uuid
 from functools import lru_cache
 from uuid import UUID
@@ -12,6 +14,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document, DocumentStatus
 from app.services.openai_service import get_chat_model, get_embeddings
 from app.services.pinecone_service import get_index
+from app.services.supabase_service import get_bucket
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
@@ -33,6 +36,27 @@ def load_file(file_path: str, mime_type: str):
     if mime_type == "application/pdf":
         return PyPDFLoader(file_path).load()
     return Docx2txtLoader(file_path).load()
+
+
+def load_from_storage(storage_key: str, mime_type: str):
+    """Download the document from Supabase Storage and parse it.
+
+    `storage_key` is a bucket key (e.g. "<user_id>/<document_id>.pdf"), not a
+    filesystem path, so the loaders cannot read it directly. Fetch the bytes
+    into a temp file, parse, then clean up.
+    """
+    data = get_bucket().download(storage_key)
+
+    suffix = ".pdf" if mime_type == "application/pdf" else ".docx"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        return load_file(tmp_path, mime_type)
+    finally:
+        if tmp_path is not None:
+            os.unlink(tmp_path)
 
 
 async def generate_summary(full_text: str) -> str:
@@ -60,7 +84,9 @@ async def ingest_document(document_id: UUID) -> None:
             document.status = DocumentStatus.PROCESSING
             await db.commit()
 
-            lc_documents = load_file(document.file_path, document.mime_type)
+            lc_documents = await asyncio.to_thread(
+                load_from_storage, document.file_path, document.mime_type
+            )
             lc_chunks = get_splitter().split_documents(lc_documents)
             if not lc_chunks:
                 raise ValueError("No text content extracted from file")
